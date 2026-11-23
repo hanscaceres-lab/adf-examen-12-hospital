@@ -1,0 +1,82 @@
+{
+	"name": "df_oro_fact_admisiones",
+	"properties": {
+		"folder": {
+			"name": "oro"
+		},
+		"type": "MappingDataFlow",
+		"typeProperties": {
+			"sources": [
+				{
+					"dataset": {
+						"referenceName": "plata_admisiones",
+						"type": "DatasetReference"
+					},
+					"name": "source1"
+				}
+			],
+			"sinks": [
+				{
+					"dataset": {
+						"referenceName": "oro_fact_admisiones",
+						"type": "DatasetReference"
+					},
+					"name": "sink1"
+				}
+			],
+			"transformations": [],
+			"scriptLines": [
+				"source(output(",
+				"          admission_id_bk as integer,",
+				"          paciente_key as integer,",
+				"          departamento_key as integer,",
+				"          diagnostico_key as integer,",
+				"          fecha_ingreso_key as integer,",
+				"          fecha_alta_key as integer,",
+				"          medico_id as integer,",
+				"          dias_estancia as integer,",
+				"          conteo_admisiones as integer",
+				"     ),",
+				"     allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     isolationLevel: 'READ_UNCOMMITTED',",
+				"     query: 'SELECT a.admission_id AS admission_id_bk, dp.paciente_key, dd.departamento_key, COALESCE(dg.diagnostico_key, nd.diagnostico_key) AS diagnostico_key, (YEAR(a.admission_date)*10000+MONTH(a.admission_date)*100+DAY(a.admission_date)) AS fecha_ingreso_key, CASE WHEN a.discharge_date IS NULL THEN NULL ELSE (YEAR(a.discharge_date)*10000+MONTH(a.discharge_date)*100+DAY(a.discharge_date)) END AS fecha_alta_key, a.attending_doctor_id AS medico_id, DATEDIFF(DAY,a.admission_date,a.discharge_date) AS dias_estancia, 1 AS conteo_admisiones FROM silver.admissions a JOIN gold.dim_paciente dp ON dp.patient_id_bk=a.patient_id JOIN gold.dim_departamento dd ON dd.nombre_departamento=a.department OUTER APPLY (SELECT TOP 1 d.icd_code, d.severity, d.diagnosis_description FROM silver.diagnoses d WHERE d.admission_id=a.admission_id ORDER BY CASE d.severity WHEN \\'Critical\\' THEN 4 WHEN \\'Severe\\' THEN 3 WHEN \\'Moderate\\' THEN 2 WHEN \\'Mild\\' THEN 1 ELSE 0 END DESC, d.diagnosis_id) dx LEFT JOIN gold.dim_diagnostico dg ON dg.codigo_icd=dx.icd_code AND dg.nivel_severidad=ISNULL(dx.severity,\\'Desconocida\\') AND ISNULL(dg.descripcion_patologia,\\'\\')=ISNULL(dx.diagnosis_description,\\'\\') CROSS JOIN (SELECT diagnostico_key FROM gold.dim_diagnostico WHERE codigo_icd=\\'N/D\\') nd',",
+				"     format: 'query') ~> source1",
+				"source1 sink(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     input(",
+				"          admision_key as long,",
+				"          admission_id_bk as integer,",
+				"          paciente_key as integer,",
+				"          departamento_key as integer,",
+				"          diagnostico_key as integer,",
+				"          fecha_ingreso_key as integer,",
+				"          fecha_alta_key as integer,",
+				"          medico_id as integer,",
+				"          dias_estancia as integer,",
+				"          conteo_admisiones as integer",
+				"     ),",
+				"     deletable:false,",
+				"     insertable:true,",
+				"     updateable:false,",
+				"     upsertable:false,",
+				"     format: 'table',",
+				"     preSQLs:['DELETE FROM gold.fact_facturacion','DELETE FROM gold.fact_admisiones','DBCC CHECKIDENT (\\'gold.fact_admisiones\\', RESEED, 0)'],",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true,",
+				"     errorHandlingOption: 'stopOnFirstError',",
+				"     mapColumn(",
+				"          admission_id_bk,",
+				"          paciente_key,",
+				"          departamento_key,",
+				"          diagnostico_key,",
+				"          fecha_ingreso_key,",
+				"          fecha_alta_key,",
+				"          medico_id,",
+				"          dias_estancia,",
+				"          conteo_admisiones",
+				"     )) ~> sink1"
+			]
+		}
+	}
+}
