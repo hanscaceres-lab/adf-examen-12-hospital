@@ -1,0 +1,110 @@
+{
+	"name": "df_plata_facturacion",
+	"properties": {
+		"folder": {
+			"name": "plata"
+		},
+		"type": "MappingDataFlow",
+		"typeProperties": {
+			"sources": [
+				{
+					"dataset": {
+						"referenceName": "bronce_facturacion",
+						"type": "DatasetReference"
+					},
+					"name": "source1"
+				},
+				{
+					"dataset": {
+						"referenceName": "plata_admisiones",
+						"type": "DatasetReference"
+					},
+					"name": "source2"
+				}
+			],
+			"sinks": [
+				{
+					"dataset": {
+						"referenceName": "plata_facturacion",
+						"type": "DatasetReference"
+					},
+					"name": "sink1"
+				}
+			],
+			"transformations": [
+				{
+					"name": "derivedColumn1"
+				},
+				{
+					"name": "derivedColumn2"
+				},
+				{
+					"name": "exist1"
+				},
+				{
+					"name": "filter1"
+				}
+			],
+			"scriptLines": [
+				"source(output(",
+				"          billing_id as string,",
+				"          admission_id as string,",
+				"          charge_type as string,",
+				"          amount as string,",
+				"          payment_status as string,",
+				"          payment_date as string",
+				"     ),",
+				"     allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     isolationLevel: 'READ_UNCOMMITTED',",
+				"     format: 'table') ~> source1",
+				"source(output(",
+				"          adm_ref as integer",
+				"     ),",
+				"     allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     isolationLevel: 'READ_UNCOMMITTED',",
+				"     query: 'SELECT admission_id AS adm_ref FROM silver.admissions',",
+				"     format: 'query') ~> source2",
+				"source1 derive(billing_id = toInteger(trim(billing_id)),",
+				"          admission_id = toInteger(trim(admission_id)),",
+				"          charge_type = iif(isNull(trim(charge_type)) || trim(charge_type)=='', 'Unknown', trim(charge_type)),",
+				"          amount = toDecimal(round(toDouble(regexReplace(upper(amount),'[^0-9.-]','')),2),12,2),",
+				"          payment_status = case(lower(trim(payment_status))=='paid','Paid', lower(trim(payment_status))=='pending','Pending', lower(trim(payment_status))=='unpaid','Unpaid', lower(trim(payment_status))=='overdue','Overdue', toString(null())),",
+				"          pay_iso = case(regexMatch(payment_date,'[0-9]{4}-[0-9]{2}-[0-9]{2}'), payment_date, regexMatch(payment_date,'[0-9]{2}/[0-9]{2}/[0-9]{4}'), concat(substring(payment_date,7,4),'-',substring(payment_date,1,2),'-',substring(payment_date,4,2)), regexMatch(payment_date,'[0-9]{2}-[0-9]{2}-[0-9]{2}'), concat(iif(toInteger(substring(payment_date,7,2))<=26,'20','19'),substring(payment_date,7,2),'-',substring(payment_date,1,2),'-',substring(payment_date,4,2)), regexMatch(payment_date,'[0-9]{2}-[A-Za-z]{3}-[0-9]{4}'), concat(substring(payment_date,8,4),'-',lpad(toString(toInteger((locate(lower(substring(payment_date,4,3)),'janfebmaraprmayjunjulaugsepoctnovdec')+2)/3)),2,'0'),'-',substring(payment_date,1,2)), regexMatch(payment_date,'[A-Za-z]+ [0-9]{1,2}, [0-9]{4}'), concat(right(payment_date,4),'-',lpad(toString(toInteger((locate(lower(substring(payment_date,1,3)),'janfebmaraprmayjunjulaugsepoctnovdec')+2)/3)),2,'0'),'-',lpad(regexReplace(split(payment_date,' ')[2],',',''),2,'0')), toString(null()))) ~> derivedColumn1",
+				"derivedColumn1 derive(payment_date = toDate(iif(pay_iso>='2000-01-01' && pay_iso<=toString(currentDate(),'yyyy-MM-dd'), pay_iso, toString(null())),'yyyy-MM-dd')) ~> derivedColumn2",
+				"derivedColumn2, source2 lookup(admission_id == adm_ref,",
+				"     multiple: false,",
+				"     pickup: 'any',",
+				"     broadcast: 'auto')~> exist1",
+				"exist1 filter(!isNull(billing_id) && !isNull(amount) && !isNull(payment_status) && !isNull(adm_ref)) ~> filter1",
+				"filter1 sink(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     input(",
+				"          billing_id as integer,",
+				"          admission_id as integer,",
+				"          charge_type as string,",
+				"          amount as decimal(12,2),",
+				"          payment_status as string,",
+				"          payment_date as date",
+				"     ),",
+				"     deletable:false,",
+				"     insertable:true,",
+				"     updateable:false,",
+				"     upsertable:false,",
+				"     format: 'table',",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true,",
+				"     errorHandlingOption: 'stopOnFirstError',",
+				"     mapColumn(",
+				"          billing_id,",
+				"          admission_id,",
+				"          charge_type,",
+				"          amount,",
+				"          payment_status,",
+				"          payment_date",
+				"     )) ~> sink1"
+			]
+		}
+	}
+}
